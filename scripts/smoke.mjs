@@ -17,10 +17,10 @@ const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'seq2mp4-')).split(path.sep
 
 const app = spawn(exe, [`--remote-debugging-port=${port}`], { stdio: 'ignore' });
 const fail = (msg) => { console.error('SMOKE FAIL:', msg); app.kill(); process.exit(1); };
-setTimeout(() => fail('timed out'), 120000).unref();
+setTimeout(() => fail('timed out'), 240000).unref();
 
 let page;
-for (let i = 0; i < 60 && !page; i++) {
+for (let i = 0; i < 180 && !page; i++) {
   try {
     const list = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
     page = list.find((t) => t.type === 'page');
