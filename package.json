@@ -37,7 +37,7 @@
       "target": [
         "dmg"
       ],
-      "identity": "-",
+      "identity": null,
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
       "minimumSystemVersion": "12.0"
