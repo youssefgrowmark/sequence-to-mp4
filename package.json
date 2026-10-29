@@ -31,10 +31,25 @@
     },
     "portable": {
       "artifactName": "Sequence-to-MP4-${version}-portable.exe"
+    },
+    "mac": {
+      "category": "public.app-category.video",
+      "target": [
+        "dmg"
+      ],
+      "identity": "-",
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "minimumSystemVersion": "12.0"
+    },
+    "dmg": {
+      "artifactName": "Sequence-to-MP4-${version}-mac-${arch}.dmg"
     }
   },
   "scripts": {
     "dist:win": "npm run build && electron-builder --win portable",
+    "dist:mac": "npm run build && electron-builder --mac dmg",
+    "smoke": "node scripts/smoke.mjs",
     "dev:ui": "vite",
     "build:ui": "vite build",
     "build:electron": "tsc -p tsconfig.electron.json",

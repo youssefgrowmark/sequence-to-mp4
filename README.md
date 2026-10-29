@@ -10,7 +10,13 @@ A free tool from [Growmark](https://growmark.site/resources.html#sequence-to-mp4
 
 **Windows:** get `Sequence-to-MP4-<version>-portable.exe` from the [latest release](https://github.com/youssefgrowmark/sequence-to-mp4/releases/latest). It is a single portable app with FFmpeg built in: no installer, no account, nothing uploaded. Windows SmartScreen may warn that the app is unsigned; choose **More info → Run anyway**.
 
-**macOS / Linux / from source:** clone this repo and follow [Quick Start](#4-quick-start--commands) below. You can also run it as a local web app in your browser with `npm run dev:ui`.
+**macOS:** from the same release, get `Sequence-to-MP4-<version>-mac-arm64.dmg` for Apple silicon (M1 and later) or `Sequence-to-MP4-<version>-mac-x64.dmg` for Intel Macs ( → About This Mac shows which). Open the DMG and drag the app into Applications. The app isn't notarized by Apple yet, so the first time macOS will refuse to open it: go to **System Settings → Privacy & Security**, scroll down and choose **Open Anyway**. If macOS says the app "is damaged", run this once in Terminal, then open it again:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Sequence to MP4.app"
+```
+
+**Linux / from source:** clone this repo and follow [Quick Start](#4-quick-start--commands) below. You can also run it as a local web app in your browser with `npm run dev:ui`.
 
 ## Why it exists
 
@@ -83,7 +89,8 @@ npm run build
 # Run automated MP4 pipeline verification
 node test/test_render.js
 
-# Package the portable Windows app (release/)
+# Package the portable Windows app (release/); macOS DMGs come from .github/workflows/mac.yml
+# (or npm run dist:mac on a Mac). Smoke-test a build: npm run sample && npm run smoke -- "<app executable>"
 npm run dist:win
 
 # Launch desktop application
