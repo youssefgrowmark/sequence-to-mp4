@@ -3,7 +3,7 @@
 // (npm run sample) through the same IPC the UI uses.
 //
 //   node scripts/smoke.mjs "<path to the app's executable>"
-import { spawn } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -64,13 +64,21 @@ const result = await evaluate(`(async () => {
     targetFramerate: 24, rateControlMode: 'crf-constrained', crf: 21, targetBitrateMbps: 4.5, maxBitrateMbps: 6,
     webOptimizations: { faststart: true, seamlessLooping: true, dropDuplicateEndFrame: false, forceYuv420p: true, stripAudio: true, h264Profile: 'high' },
     preset: 'medium', keyframeMode: 'custom', customKeyintFrames: 4, bFrames: 0, tune: 'fastdecode',
-    twoPass: false, sharpenOutput: true, inPoint: 0, outPoint: 0,
+    // the UI sets the out point to the last frame when a sequence is picked
+    twoPass: false, sharpenOutput: true, inPoint: 0, outPoint: s.sequences[0].filePaths.length - 1,
     outputDirectory: ${JSON.stringify(outDir)}, filenameTemplate: '{name}_{preset}_{fps}fps_{resolution}_{quality}',
   };
-  return window.electronAPI.startRender(s.sequences[0], settings);
+  const r = await window.electronAPI.startRender(s.sequences[0], settings);
+  return { ...r, frames: s.sequences[0].filePaths.length };
 })()`);
 console.log('render:', JSON.stringify(result));
 if (!result || !result.success || !(result.outputSizeBytes > 0)) fail('render failed');
+
+// every source frame made it into the MP4: decode it with the app's own FFmpeg
+const decoded = spawnSync(ff.binaryPath, ['-hide_banner', '-i', result.outputPath, '-f', 'null', '-'], { encoding: 'utf8' });
+const counted = +([...(decoded.stderr || '').matchAll(/frame=\s*(\d+)/g)].pop()?.[1] ?? 0);
+console.log(`frames: ${counted} of ${result.frames}`);
+if (counted !== result.frames) fail('MP4 is missing frames');
 
 console.log('SMOKE OK');
 ws.close();

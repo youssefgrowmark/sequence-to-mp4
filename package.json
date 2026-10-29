@@ -1,6 +1,6 @@
 {
   "name": "sequence-to-mp4",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Turn image and 3D render sequences into lightweight, stutter-free MP4s built for websites and scroll animations.",
   "main": "dist-electron/electron/main.js",
   "author": "Growmark <growmark@growmark.site>",

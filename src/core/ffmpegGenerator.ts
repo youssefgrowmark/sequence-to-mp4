@@ -256,6 +256,11 @@ export function generateFFmpegCommand(
     args.push('-vf', vfFilters.join(','));
   }
 
+  // Exactly the selected frames: the concat list repeats the last file (so its
+  // duration holds), and with the input rate forced that repeat would be encoded
+  // as one extra frame, a visible hitch at the seam of a <video loop>
+  args.push('-frames:v', `${totalOutputFrames}`);
+
   // Video Codec
   args.push('-c:v', settings.codec);
 
