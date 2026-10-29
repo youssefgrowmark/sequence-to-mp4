@@ -1,0 +1,10 @@
+node_modules/
+dist/
+dist-electron/
+release/
+exports/
+output_test/
+sample_sequence/
+backup-*/
+*.log
+.DS_Store

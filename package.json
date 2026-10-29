@@ -1,0 +1,64 @@
+{
+  "name": "sequence-to-mp4",
+  "version": "1.0.0",
+  "description": "Turn image and 3D render sequences into lightweight, stutter-free MP4s built for websites and scroll animations.",
+  "main": "dist-electron/electron/main.js",
+  "author": "Growmark <growmark@growmark.site>",
+  "license": "MIT",
+  "homepage": "https://growmark.site/resources.html#sequence-to-mp4",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/youssefgrowmark/sequence-to-mp4.git"
+  },
+  "build": {
+    "appId": "site.growmark.sequence-to-mp4",
+    "productName": "Sequence to MP4",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "node_modules/ffmpeg-static/**"
+    ],
+    "win": {
+      "target": [
+        "portable"
+      ]
+    },
+    "portable": {
+      "artifactName": "Sequence-to-MP4-${version}-portable.exe"
+    }
+  },
+  "scripts": {
+    "dist:win": "npm run build && electron-builder --win portable",
+    "dev:ui": "vite",
+    "build:ui": "vite build",
+    "build:electron": "tsc -p tsconfig.electron.json",
+    "build": "npm run build:electron && npm run build:ui",
+    "start": "npm run build && electron ./dist-electron/electron/main.js",
+    "launch": "electron ./dist-electron/electron/main.js",
+    "dev": "cross-env NODE_ENV=development npm run build:electron && electron ./dist-electron/electron/main.js",
+    "sample": "node scripts/generateSampleSequence.js"
+  },
+  "dependencies": {
+    "ffmpeg-static": "^5.3.0",
+    "lucide-react": "^1.48.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.3",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "cross-env": "^10.1.0",
+    "electron": "^44.4.5",
+    "electron-builder": "^26.18.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.1"
+  }
+}
