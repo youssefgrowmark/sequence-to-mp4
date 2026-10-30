@@ -55,6 +55,9 @@ export interface SequenceItem {
   sampleFilePath: string;
   filePaths: string[];
   fileNames?: string[];
+  /** The frames as detected on disk, kept once frames are removed or reordered so they can be restored */
+  originalFilePaths?: string[];
+  originalFileNames?: string[];
   width?: number;
   height?: number;
   aspectRatio?: string;

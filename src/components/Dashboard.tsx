@@ -739,7 +739,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         {/* Top Toolbar */}
         <header className="dashboard-topbar">
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <h1 style={{ fontSize: '15px', fontWeight: 600, letterSpacing: '-0.018em' }}>
+            <h1 className="font-dot" style={{ fontSize: '26px', lineHeight: 1 }}>
               {getSectionTitle()}
             </h1>
             {activeFolder && (

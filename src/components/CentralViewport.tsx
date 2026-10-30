@@ -16,6 +16,10 @@ import {
   Film,
   MousePointerClick,
   ChevronsLeftRight,
+  Trash2,
+  RotateCcw,
+  ArrowLeftToLine,
+  ArrowRightToLine,
 } from 'lucide-react';
 import { ExportSettings, SequenceItem } from '../../electron/types';
 import { formatTimecode, formatBytes } from '../core/timecode';
@@ -46,6 +50,11 @@ interface CentralViewportProps {
   onDragOver?: (e: React.DragEvent) => void;
   onDragLeave?: (e: React.DragEvent) => void;
   onDrop?: (e: React.DragEvent) => void;
+  /** Source grid frame editing (right-click to remove, drag to reorder) */
+  canEditFrames?: boolean;
+  onDeleteFrame?: (index: number) => void;
+  onMoveFrame?: (from: number, to: number) => void;
+  onRestoreFrames?: () => void;
   timelineSplitterProps?: {
     onDragStart: () => void;
     onDrag: (delta: number) => void;
@@ -139,6 +148,8 @@ const PLAYBACK_SPEED_OPTIONS: AppleDropdownOption<string>[] = [
   { value: '2', label: '2.0×', sublabel: 'Double Speed' },
 ];
 
+const FRAME_DRAG_TYPE = 'application/x-seq2mp4-frame';
+
 export const CentralViewport: React.FC<CentralViewportProps> = ({
   sequence,
   settings,
@@ -160,6 +171,10 @@ export const CentralViewport: React.FC<CentralViewportProps> = ({
   onDragOver,
   onDragLeave,
   onDrop,
+  canEditFrames = false,
+  onDeleteFrame,
+  onMoveFrame,
+  onRestoreFrames,
   timelineSplitterProps,
 }) => {
   const initialUI = loadPersistedUIState();
@@ -277,6 +292,38 @@ export const CentralViewport: React.FC<CentralViewportProps> = ({
     },
     [sequence]
   );
+
+  // Source grid frame editing: right-click menu and drag-to-reorder. A frame drag
+  // carries its own data type so the folder drop zone underneath ignores it
+  const [frameMenu, setFrameMenu] = useState<{ index: number; x: number; y: number } | null>(
+    null
+  );
+  const [dragFrom, setDragFrom] = useState<number | null>(null);
+  const [dropTarget, setDropTarget] = useState<{ index: number; after: boolean } | null>(null);
+  const isFrameDrag = (e: React.DragEvent) => e.dataTransfer.types.includes(FRAME_DRAG_TYPE);
+
+  useEffect(() => {
+    if (!frameMenu) return;
+    const close = () => setFrameMenu(null);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') close();
+    };
+    window.addEventListener('pointerdown', close);
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('resize', close);
+    window.addEventListener('scroll', close, true);
+    return () => {
+      window.removeEventListener('pointerdown', close);
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('resize', close);
+      window.removeEventListener('scroll', close, true);
+    };
+  }, [frameMenu]);
+
+  const endFrameDrag = () => {
+    setDragFrom(null);
+    setDropTarget(null);
+  };
 
   const folderDisplayName = sequence
     ? sequence.directory.replace(/[/\\]+$/, '').split(/[/\\]/).pop() || sequence.directory
@@ -596,8 +643,6 @@ export const CentralViewport: React.FC<CentralViewportProps> = ({
           alignItems: 'center',
           justifyContent: 'space-between',
           padding: '8px 14px',
-          backgroundColor: 'var(--bg-card)',
-          borderBottom: '1px solid var(--border-subtle)',
           zIndex: 10,
           gap: '8px',
           flexWrap: 'wrap',
@@ -724,9 +769,19 @@ export const CentralViewport: React.FC<CentralViewportProps> = ({
       >
         <div
           ref={containerRef}
-          onDragOver={onDragOver}
-          onDragLeave={onDragLeave}
-          onDrop={onDrop}
+          onDragOver={(e) => {
+            if (isFrameDrag(e)) {
+              setDropTarget(null);
+              return;
+            }
+            onDragOver?.(e);
+          }}
+          onDragLeave={(e) => {
+            if (!isFrameDrag(e)) onDragLeave?.(e);
+          }}
+          onDrop={(e) => {
+            if (!isFrameDrag(e)) onDrop?.(e);
+          }}
           style={{
             flex: 1,
             width: '100%',
@@ -790,18 +845,68 @@ export const CentralViewport: React.FC<CentralViewportProps> = ({
                 const isIn = idx === inPoint;
                 const isOut = idx === effectiveOutPoint;
                 const isOutOfRange = idx < inPoint || idx > effectiveOutPoint;
+                const isVertical = sourceGridFormat === '1-col';
+                const dropSide =
+                  dropTarget?.index === idx && dragFrom !== null
+                    ? `${isVertical ? 'drop-y' : 'drop-x'} ${dropTarget.after ? 'drop-after' : 'drop-before'}`
+                    : '';
 
                 return (
                   <div
-                    key={idx}
-                    className={`source-frame-card ${isCurrent ? 'active' : ''}`}
-                    style={{ opacity: isOutOfRange ? 0.45 : 1 }}
+                    key={fp}
+                    className={`source-frame-card ${isCurrent ? 'active' : ''} ${
+                      dragFrom === idx ? 'is-dragging' : ''
+                    } ${dropSide}`}
+                    style={{ opacity: dragFrom === idx ? undefined : isOutOfRange ? 0.45 : 1 }}
                     onClick={() => onSeekFrame(idx)}
                     onDoubleClick={() => {
                       onSeekFrame(idx);
                       setSourceGridFormat('single');
                     }}
-                    title={`${fileName} — Click to select frame #${idx + 1}, double-click to inspect single frame`}
+                    onContextMenu={(e) => {
+                      if (!canEditFrames || !onDeleteFrame) return;
+                      e.preventDefault();
+                      onSeekFrame(idx);
+                      const menuW = 200;
+                      const menuH = 170;
+                      setFrameMenu({
+                        index: idx,
+                        x: Math.max(8, Math.min(e.clientX, window.innerWidth - menuW - 8)),
+                        y: Math.max(8, Math.min(e.clientY, window.innerHeight - menuH - 8)),
+                      });
+                    }}
+                    draggable={canEditFrames && Boolean(onMoveFrame) && totalFrames > 1}
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData(FRAME_DRAG_TYPE, String(idx));
+                      e.dataTransfer.effectAllowed = 'move';
+                      setFrameMenu(null);
+                      setDragFrom(idx);
+                    }}
+                    onDragOver={(e) => {
+                      if (!isFrameDrag(e) || dragFrom === null) return;
+                      e.preventDefault();
+                      e.stopPropagation();
+                      e.dataTransfer.dropEffect = 'move';
+                      const r = e.currentTarget.getBoundingClientRect();
+                      const after = isVertical
+                        ? e.clientY > r.top + r.height / 2
+                        : e.clientX > r.left + r.width / 2;
+                      if (dropTarget?.index !== idx || dropTarget.after !== after) {
+                        setDropTarget({ index: idx, after });
+                      }
+                    }}
+                    onDrop={(e) => {
+                      if (!isFrameDrag(e) || dragFrom === null) return;
+                      e.preventDefault();
+                      e.stopPropagation();
+                      // Position in the order once the dragged frame is lifted out
+                      let to = idx + (dropTarget?.index === idx && dropTarget.after ? 1 : 0);
+                      if (dragFrom < to) to -= 1;
+                      if (to !== dragFrom) onMoveFrame?.(dragFrom, to);
+                      endFrameDrag();
+                    }}
+                    onDragEnd={endFrameDrag}
+                    title={`${fileName} — Click to select frame #${idx + 1}, double-click to inspect, drag to reorder, right-click for options`}
                   >
                     <div
                       className="source-frame-preview-box"
@@ -885,6 +990,69 @@ export const CentralViewport: React.FC<CentralViewportProps> = ({
                 );
               })}
             </div>
+
+            {frameMenu && (
+              <div
+                className="folder-context-menu"
+                role="menu"
+                style={{ left: `${frameMenu.x}px`, top: `${frameMenu.y}px`, width: '200px' }}
+                onPointerDown={(e) => e.stopPropagation()}
+                onContextMenu={(e) => e.preventDefault()}
+              >
+                <div className="context-menu-label">
+                  {getFrameFileName(frameMenu.index)} · #{frameMenu.index + 1}
+                </div>
+                <button
+                  className="context-menu-item"
+                  role="menuitem"
+                  onClick={() => {
+                    onSetInPoint(frameMenu.index);
+                    setFrameMenu(null);
+                  }}
+                >
+                  <ArrowRightToLine size={13} />
+                  <span>Set as In Point</span>
+                </button>
+                <button
+                  className="context-menu-item"
+                  role="menuitem"
+                  onClick={() => {
+                    onSetOutPoint(frameMenu.index);
+                    setFrameMenu(null);
+                  }}
+                >
+                  <ArrowLeftToLine size={13} />
+                  <span>Set as Out Point</span>
+                </button>
+                <div className="context-menu-divider" />
+                <button
+                  className="context-menu-item danger"
+                  role="menuitem"
+                  disabled={totalFrames <= 1}
+                  title={totalFrames <= 1 ? 'A sequence needs at least one frame' : undefined}
+                  onClick={() => {
+                    onDeleteFrame?.(frameMenu.index);
+                    setFrameMenu(null);
+                  }}
+                >
+                  <Trash2 size={13} />
+                  <span>Remove Frame</span>
+                </button>
+                {sequence.originalFilePaths && onRestoreFrames && (
+                  <button
+                    className="context-menu-item"
+                    role="menuitem"
+                    onClick={() => {
+                      onRestoreFrames();
+                      setFrameMenu(null);
+                    }}
+                  >
+                    <RotateCcw size={13} />
+                    <span>Restore All Frames ({sequence.originalFilePaths.length})</span>
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         ) : previewMode === 'rendered-mp4' && renderedVideoSrc ? (
           <div
@@ -1384,7 +1552,6 @@ export const CentralViewport: React.FC<CentralViewportProps> = ({
           height: 'var(--timeline-h, 94px)',
           minHeight: '76px',
           flexShrink: 0,
-          backgroundColor: 'var(--bg-card)',
           borderTop: timelineSplitterProps ? 'none' : '0.75px solid var(--border-subtle)',
           padding: '10px 16px',
           display: 'flex',
@@ -1501,11 +1668,10 @@ export const CentralViewport: React.FC<CentralViewportProps> = ({
           {/* Left: Timecode Readout (HH:MM:SS:FF) */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span
-              className="font-mono"
+              className="font-dot"
               style={{
-                fontSize: '16px',
-                fontWeight: 700,
-                letterSpacing: '0.04em',
+                fontSize: '22px',
+                lineHeight: 1,
                 color: hasSource ? 'var(--text-primary)' : 'var(--text-muted)',
               }}
             >

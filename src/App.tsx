@@ -6,6 +6,7 @@ import { RightPanel } from './components/RightPanel';
 import { TerminalDrawer } from './components/TerminalDrawer';
 import { SettingsModal } from './components/SettingsModal';
 import { ExportLocationModal } from './components/ExportLocationModal';
+import { ExportReport, ExportRun } from './components/ExportReport';
 import { OpeningSplash } from './components/BrandLogo';
 import { Dashboard } from './components/Dashboard';
 import { Splitter } from './components/Splitter';
@@ -46,7 +47,9 @@ export const App: React.FC = () => {
 
   // App navigation screen: always play the intro splash animation on fresh app load,
   // then transition to the stored screen (dashboard or editor).
-  const [appScreen, setAppScreen] = useState<'splash' | 'dashboard' | 'editor'>('splash');
+  const [appScreen, setAppScreen] = useState<'splash' | 'dashboard' | 'editor' | 'export'>(
+    'splash'
+  );
 
   // Theme state: restored from cookie
   const [theme, setTheme] = useState<'light' | 'dark'>(() => initialUIState.theme);
@@ -117,6 +120,8 @@ export const App: React.FC = () => {
     open: boolean;
     mode: 'export' | 'select-only';
   }>({ open: false, mode: 'export' });
+  // The latest export, shown on the export report page
+  const [exportRun, setExportRun] = useState<ExportRun | null>(null);
   const [isDraggingOver, setIsDraggingOver] = useState<boolean>(false);
   const [ffmpegInfo, setFFmpegInfo] = useState<{
     available: boolean;
@@ -172,7 +177,9 @@ export const App: React.FC = () => {
   useEffect(() => {
     savePersistedUIState({
       theme,
-      appScreen: appScreen === 'splash' ? 'dashboard' : appScreen,
+      // The export report only lives for this session; reopen on the editor
+      appScreen:
+        appScreen === 'splash' ? 'dashboard' : appScreen === 'export' ? 'editor' : appScreen,
       activeProjectId,
       currentDirectory,
       selectedSequencePattern: selectedSequence?.pattern || null,
@@ -322,6 +329,116 @@ export const App: React.FC = () => {
     });
 
     addLog('info', `Selected sequence: ${seq.name} (${seq.totalFrames} frames)`);
+  };
+
+  // Frame edits from the Source grid. The sequence's file list is what the preview,
+  // frame range, estimate and export all read, so editing it is the whole change;
+  // files on disk are never touched and the detected list is kept for restoring
+  /** `mapIndex(old, preferEarlier)` gives a frame's new position; for a removed frame,
+   *  the frame after it, or with `preferEarlier` the frame before it */
+  const applyFrameList = (
+    next: SequenceItem,
+    mapIndex: (oldIdx: number, preferEarlier: boolean) => number,
+    summary: string
+  ) => {
+    const seq = selectedSequence;
+    if (!seq) return;
+    const prevLast = seq.filePaths.length - 1;
+    const nextLast = Math.max(0, next.filePaths.length - 1);
+    const clamp = (i: number) => Math.min(nextLast, Math.max(0, i));
+
+    setSelectedSequence(next);
+    setDetectedSequences((prev) => prev.map((s) => (s.id === seq.id ? next : s)));
+    setCurrentFrame(clamp(mapIndex(currentFrame, false)));
+
+    setExportSettings((prev) => {
+      // A full range stays full; otherwise the In / Out points follow their frames
+      if (prev.inPoint <= 0 && prev.outPoint >= prevLast) {
+        return { ...prev, inPoint: 0, outPoint: nextLast };
+      }
+      const nextIn = clamp(mapIndex(prev.inPoint, false));
+      const nextOut = Math.max(nextIn, clamp(mapIndex(prev.outPoint, true)));
+      return { ...prev, inPoint: nextIn, outPoint: nextOut };
+    });
+
+    addLog('info', summary);
+  };
+
+  const frameNameAt = (seq: SequenceItem, i: number) => {
+    if (seq.fileNames?.[i]) return seq.fileNames[i];
+    const fp = seq.filePaths[i] || '';
+    const base = !fp.startsWith('blob:') && !fp.startsWith('data:') ? fp.split(/[/\\]/).pop() : '';
+    return base || `frame_${String(i + 1).padStart(seq.padding || 4, '0')}${seq.extension}`;
+  };
+
+  /** `order` lists the frame indices to keep, in their new order */
+  const editFrames = (order: number[], summary: string) => {
+    const seq = selectedSequence;
+    if (!seq || order.length === 0) return;
+    const filePaths = order.map((i) => seq.filePaths[i]);
+    const next: SequenceItem = {
+      ...seq,
+      filePaths,
+      fileNames: order.map((i) => frameNameAt(seq, i)),
+      totalFrames: filePaths.length,
+      sampleFilePath: filePaths[0],
+      originalFilePaths: seq.originalFilePaths || seq.filePaths,
+      originalFileNames:
+        seq.originalFileNames || seq.filePaths.map((_, i) => frameNameAt(seq, i)),
+    };
+
+    // A removed frame's slot is taken by the next kept frame (less the removals before it)
+    const removed = seq.filePaths.map((_, i) => i).filter((i) => !order.includes(i));
+    applyFrameList(
+      next,
+      (oldIdx, preferEarlier) => {
+        const kept = order.indexOf(oldIdx);
+        if (kept >= 0) return kept;
+        const slot = oldIdx - removed.filter((r) => r < oldIdx).length;
+        return preferEarlier ? slot - 1 : slot;
+      },
+      summary
+    );
+  };
+
+  const handleDeleteFrame = (index: number) => {
+    const seq = selectedSequence;
+    if (!seq || seq.filePaths.length <= 1) return;
+    const name = frameNameAt(seq, index);
+    editFrames(
+      seq.filePaths.map((_, i) => i).filter((i) => i !== index),
+      `Removed frame #${index + 1} (${name}) from the sequence`
+    );
+  };
+
+  /** Moves frame `from` so it lands at position `to` in the new order */
+  const handleMoveFrame = (from: number, to: number) => {
+    const seq = selectedSequence;
+    if (!seq || from === to) return;
+    const order = seq.filePaths.map((_, i) => i);
+    const [moved] = order.splice(from, 1);
+    order.splice(to, 0, moved);
+    editFrames(order, `Moved frame ${frameNameAt(seq, from)} from #${from + 1} to #${to + 1}`);
+  };
+
+  const handleRestoreFrames = () => {
+    const seq = selectedSequence;
+    if (!seq?.originalFilePaths) return;
+    const filePaths = seq.originalFilePaths;
+    const next: SequenceItem = {
+      ...seq,
+      filePaths,
+      fileNames: seq.originalFileNames,
+      totalFrames: filePaths.length,
+      sampleFilePath: filePaths[0],
+      originalFilePaths: undefined,
+      originalFileNames: undefined,
+    };
+    applyFrameList(
+      next,
+      (oldIdx) => filePaths.indexOf(seq.filePaths[oldIdx]),
+      `Restored all ${filePaths.length} frames in their original order`
+    );
   };
 
   // Helper: Measure image dimensions from a blob/data/media URL in the renderer
@@ -1245,6 +1362,34 @@ export const App: React.FC = () => {
       activeCommand: generated.commandString,
     });
 
+    const runEstimate = estimateMP4Output(selectedSequence, activeSettings);
+    // Up to 10 frames spread across the exported range, for the report's frame stack
+    const lastIdx = selectedSequence.filePaths.length - 1;
+    const lo = Math.min(Math.max(0, activeSettings.inPoint), lastIdx);
+    const hi = Math.min(Math.max(lo, activeSettings.outPoint), lastIdx);
+    const stackCount = Math.min(10, hi - lo + 1);
+    const framePaths = Array.from(
+      { length: stackCount },
+      (_, i) => selectedSequence.filePaths[lo + Math.round((i * (hi - lo)) / Math.max(stackCount - 1, 1))]
+    );
+    setExportRun({
+      settings: activeSettings,
+      estimate: runEstimate,
+      framePaths,
+      sequenceName: selectedSequence.name,
+      sampleFilePath: selectedSequence.filePaths[activeSettings.inPoint] || selectedSequence.sampleFilePath,
+      sourceWidth: selectedSequence.width,
+      sourceHeight: selectedSequence.height,
+      outputFileName: formatOutputFilename(
+        activeSettings.filenameTemplate,
+        selectedSequence,
+        activeSettings,
+        runEstimate.outputWidth,
+        runEstimate.outputHeight
+      ),
+      startedAt: Date.now(),
+    });
+
     addLog('info', `Starting Web MP4 render: ${generated.outputFilePath}`);
 
     try {
@@ -1428,6 +1573,9 @@ export const App: React.FC = () => {
         addLog('error', `Exception during render: ${err.message}`);
       }
     }
+
+    // Done, cancelled or failed: stop the report's clock
+    setExportRun((prev) => (prev && !prev.finishedAt ? { ...prev, finishedAt: Date.now() } : prev));
   };
 
   // Cancel Active Render
@@ -1521,6 +1669,19 @@ export const App: React.FC = () => {
           layoutStyle={panelLayout.style}
           sidebarSplitterProps={panelLayout.splitterProps('dashSidebar')}
         />
+      ) : appScreen === 'export' && exportRun ? (
+        <ExportReport
+          run={exportRun}
+          renderState={renderState}
+          projectName={activeProject?.name}
+          onBack={() => setAppScreen('editor')}
+          onCancel={handleCancelRender}
+          onShowInFolder={handleOpenOutputFolder}
+          onExportAgain={() => {
+            setAppScreen('editor');
+            handleRequestExport();
+          }}
+        />
       ) : (
         <div className="app-container" style={panelLayout.style}>
           {/* App Header */}
@@ -1596,6 +1757,10 @@ export const App: React.FC = () => {
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
+              canEditFrames={renderState.status !== 'rendering'}
+              onDeleteFrame={handleDeleteFrame}
+              onMoveFrame={handleMoveFrame}
+              onRestoreFrames={handleRestoreFrames}
               timelineSplitterProps={panelLayout.splitterProps('timeline')}
             />
 
@@ -1614,6 +1779,7 @@ export const App: React.FC = () => {
               onSelectOutputDirectory={handleSelectOutputDirectory}
               onOpenOutputFolder={handleOpenOutputFolder}
               onBrowseSequenceDirectory={handleBrowseDirectory}
+              onOpenExportReport={exportRun ? () => setAppScreen('export') : undefined}
             />
           </div>
 
@@ -1671,6 +1837,7 @@ export const App: React.FC = () => {
               setExportLocationModal((prev) => ({ ...prev, open: false }));
               addLog('info', `Export destination set: ${chosenDir}`);
               if (startExportNow) {
+                setAppScreen('export');
                 executeRenderWithSettings(nextSettings);
               }
             }}

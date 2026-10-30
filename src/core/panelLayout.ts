@@ -22,27 +22,37 @@ export interface PanelSizes {
 export type PanelKey = keyof PanelSizes;
 
 export const DEFAULT_PANEL_SIZES: PanelSizes = {
-  left: 310,
-  right: 410,
+  left: 300,
+  right: 420,
   timeline: 94,
   term: 240,
   dashSidebar: 240,
 };
 
-const STORAGE_KEY = 'seq2mp4.panelSizes.v2';
+// v4: bento defaults; v2 could hold sizes squeezed by a small window
+const STORAGE_KEY = 'seq2mp4.panelSizes.v4';
 /** The preview always keeps at least this much width, and the editor this much height above the drawer */
 const MIN_CENTER = 280;
 const MIN_ABOVE_TERM = 240;
+/** Bento tiles spend ~50px on padding + borders; below these the inspector rows clip */
+const MIN_LEFT = 230;
+const MIN_RIGHT = 320;
 
 function clampSizes(s: PanelSizes): PanelSizes {
   const vw = typeof window !== 'undefined' ? window.innerWidth : 1440;
   const vh = typeof window !== 'undefined' ? window.innerHeight : 900;
 
   const right = Math.round(
-    Math.min(Math.max(s.right, 250), Math.max(250, Math.min(720, vw - MIN_CENTER - 190)))
+    Math.min(
+      Math.max(s.right, MIN_RIGHT),
+      Math.max(MIN_RIGHT, Math.min(720, vw - MIN_CENTER - MIN_LEFT))
+    )
   );
   const left = Math.round(
-    Math.min(Math.max(s.left, 190), Math.max(190, Math.min(640, vw - MIN_CENTER - right)))
+    Math.min(
+      Math.max(s.left, MIN_LEFT),
+      Math.max(MIN_LEFT, Math.min(640, vw - MIN_CENTER - right))
+    )
   );
   const timeline = Math.round(
     Math.min(Math.max(s.timeline, 76), Math.max(76, Math.min(300, Math.floor(vh * 0.42))))
@@ -61,12 +71,12 @@ function loadSizes(): PanelSizes {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
     if (saved && typeof saved === 'object') {
-      return clampSizes({ ...DEFAULT_PANEL_SIZES, ...saved });
+      return { ...DEFAULT_PANEL_SIZES, ...saved };
     }
   } catch {
     // unreadable or blocked storage: use defaults
   }
-  return clampSizes(DEFAULT_PANEL_SIZES);
+  return DEFAULT_PANEL_SIZES;
 }
 
 /** Which way a pointer movement grows each pane:
@@ -82,22 +92,25 @@ const GROWS_WITH: Record<PanelKey, 1 | -1> = {
 };
 
 export function usePanelLayout() {
-  const [sizes, setSizes] = useState<PanelSizes>(loadSizes);
+  // The sizes the user chose are kept (and saved) as-is; a smaller window only
+  // squeezes what is shown, so the panels grow back when the window does
+  const [preferred, setSizes] = useState<PanelSizes>(loadSizes);
+  const [, setViewport] = useState(0);
+  const sizes = clampSizes(preferred);
   const sizesRef = useRef<PanelSizes>(sizes);
   sizesRef.current = sizes;
   const dragStart = useRef<PanelSizes>(sizes);
 
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(sizes));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(preferred));
     } catch {
       // storage blocked: sizes just won't be remembered
     }
-  }, [sizes]);
+  }, [preferred]);
 
-  // A smaller window squeezes the panels back into range
   useEffect(() => {
-    const onResize = () => setSizes((s) => clampSizes(s));
+    const onResize = () => setViewport((n) => n + 1);
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
@@ -111,8 +124,7 @@ export function usePanelLayout() {
         const base = dragStart.current;
         setSizes(clampSizes({ ...base, [key]: base[key] + GROWS_WITH[key] * delta }));
       },
-      onReset: () =>
-        setSizes((s) => clampSizes({ ...s, [key]: DEFAULT_PANEL_SIZES[key] })),
+      onReset: () => setSizes((s) => ({ ...s, [key]: DEFAULT_PANEL_SIZES[key] })),
     }),
     []
   );

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   FolderOpen,
   XCircle,
+  BarChart3,
   Lock,
   Unlock,
   Check,
@@ -56,6 +57,8 @@ interface RightPanelProps {
   onSelectOutputDirectory: () => void;
   onOpenOutputFolder: (path: string) => void;
   onBrowseSequenceDirectory?: () => void;
+  /** Opens the export report page for the latest export */
+  onOpenExportReport?: () => void;
 }
 
 type ConfigAreaTab = 'web' | 'quality' | 'performance';
@@ -120,6 +123,7 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(({
   onSelectOutputDirectory,
   onOpenOutputFolder,
   onBrowseSequenceDirectory,
+  onOpenExportReport,
 }) => {
   const [activeTab, setActiveTab] = useState<ConfigAreaTab>(
     () => loadPersistedUIState().inspectorTab || 'quality'
@@ -235,8 +239,6 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(({
           position: 'sticky',
           top: 0,
           zIndex: 30,
-          backgroundColor: 'var(--bg-secondary)',
-          borderBottom: '1px solid var(--border-subtle)',
           flexShrink: 0,
           overflow: 'visible',
         }}
@@ -250,11 +252,10 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(({
           }}
         >
           <span
-            className="font-mono"
+            className="font-dot"
             style={{
-              fontSize: '22px',
-              fontWeight: 600,
-              letterSpacing: '-0.03em',
+              fontSize: '30px',
+              lineHeight: 1,
               color: hasSource ? 'var(--text-primary)' : 'var(--text-muted)',
             }}
           >
@@ -406,12 +407,8 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(({
 
       {/* 3. Native Apple Segmented Control for the 3 Core Areas */}
       <div
-        className={!hasSource ? 'section-unavailable' : ''}
-        style={{
-          padding: '10px 16px',
-          borderBottom: '1px solid var(--border-subtle)',
-          backgroundColor: 'var(--bg-secondary)',
-        }}
+        className={`panel-section ${!hasSource ? 'section-unavailable' : ''}`}
+        style={{ padding: '8px' }}
       >
         <div className="apple-segmented">
           <button
@@ -1319,7 +1316,7 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(({
       </ResizableSection>
 
       {/* 5. Primary Export CTA with Hover Diagnostic Flyout & Percentage Indicator */}
-      <ResizableSection id="right-export-cta" className="panel-section" style={{ borderBottom: 'none' }} minHeight={70}>
+      <ResizableSection id="right-export-cta" className="panel-section panel-section-bare" minHeight={70}>
         {isRendering ? (
           <div
             style={{
@@ -1394,10 +1391,18 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(({
               </span>
             </div>
 
-            <button className="btn" style={{ height: '30px' }} onClick={onCancelRender}>
-              <XCircle size={13} />
-              Cancel Export
-            </button>
+            <div style={{ display: 'flex', gap: '6px' }}>
+              {onOpenExportReport && (
+                <button className="btn" style={{ height: '30px', flex: 1 }} onClick={onOpenExportReport}>
+                  <BarChart3 size={13} />
+                  View Progress
+                </button>
+              )}
+              <button className="btn" style={{ height: '30px', flex: 1 }} onClick={onCancelRender}>
+                <XCircle size={13} />
+                Cancel Export
+              </button>
+            </div>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -1525,6 +1530,13 @@ export const RightPanel: React.FC<RightPanelProps> = React.memo(({
                 >
                   {renderState.outputPath}
                 </div>
+
+                {onOpenExportReport && (
+                  <button className="btn" style={{ height: '30px' }} onClick={onOpenExportReport}>
+                    <BarChart3 size={13} />
+                    View Export Report
+                  </button>
+                )}
               </div>
             )}
 
